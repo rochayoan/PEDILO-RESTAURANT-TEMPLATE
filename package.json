@@ -13,7 +13,8 @@
     "test": "tsx --test packages/config/src/*.test.ts apps/agent/src/*.test.ts",
     "validate": "tsx scripts/validate-config.ts",
     "setup": "node scripts/setup-restaurant.mjs",
-    "typecheck": "npm run build --workspace=@pedilo/agent"
+    "typecheck": "npm run build --workspace=@pedilo/agent",
+    "audit": "node scripts/audit-template.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
