@@ -16,6 +16,8 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Static audit
+        run: npm run audit
       - name: Unit tests
         run: npm test
       - name: Agent typecheck
