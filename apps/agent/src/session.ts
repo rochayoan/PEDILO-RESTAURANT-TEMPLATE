@@ -1,4 +1,7 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, timingSafeEqual,
+} from 'node:crypto';
+
 export interface MenuSession {
   sessionId: string;
   restaurantId: string;
@@ -7,9 +10,9 @@ export interface MenuSession {
   expiresAt: string;
   replacesOrderId: null;
 }
-function sign(data: string, secret: string): string {
+function keyFor(secret: string): Buffer {
   if (secret.length < 32) throw new Error('session_secret_too_short');
-  return createHmac('sha256', secret).update(data).digest('base64url');
+  return createHash('sha256').update(secret).digest();
 }
 export function issueMenuSession(input: {
   restaurantId: string; customerPhone: string; phoneNumberId: string;
@@ -17,32 +20,40 @@ export function issueMenuSession(input: {
   if (!/^\d{8,16}$/.test(input.customerPhone) || !input.phoneNumberId) {
     throw new Error('invalid_session_issuer_input');
   }
-  const payload: MenuSession = {
-    ...input, sessionId: randomUUID(),
-    expiresAt: new Date(now + 30 * 60_000).toISOString(), replacesOrderId: null,
+  const session: MenuSession = {
+    ...input, sessionId: randomUUID(), replacesOrderId: null,
+    expiresAt: new Date(now + 30 * 60_000).toISOString(),
   };
-  const raw = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  return raw + '.' + sign(raw, secret);
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', keyFor(secret), nonce);
+  const data = Buffer.concat([cipher.update(JSON.stringify(session), 'utf8'), cipher.final()]);
+  return [nonce.toString('base64url'), data.toString('base64url'),
+    cipher.getAuthTag().toString('base64url')].join('.');
 }
 export function verifyMenuSession(
   token: string, secret: string, restaurantId: string, now = Date.now(),
 ): MenuSession | null {
-  const [raw, signature, extra] = token.split('.');
-  if (!raw || !signature || extra) return null;
-  const expected = Buffer.from(sign(raw, secret));
-  const actual = Buffer.from(signature);
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+  if (token.length > 4096) return null;
+  const [iv, contents, tag, extra] = token.split('.');
+  if (!iv || !contents || !tag || extra) return null;
   let data: unknown;
-  try { data = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')); }
-  catch { return null; }
+  try {
+    const nonce = Buffer.from(iv, 'base64url');
+    const auth = Buffer.from(tag, 'base64url');
+    if (nonce.length !== 12 || auth.length !== 16) return null;
+    const decipher = createDecipheriv('aes-256-gcm', keyFor(secret), nonce);
+    decipher.setAuthTag(auth);
+    const plain = Buffer.concat([decipher.update(Buffer.from(contents, 'base64url')), decipher.final()]);
+    data = JSON.parse(plain.toString('utf8'));
+  } catch { return null; }
   if (!data || typeof data !== 'object') return null;
   const v = data as Record<string, unknown>;
   if (v.restaurantId !== restaurantId || typeof v.sessionId !== 'string' ||
       typeof v.customerPhone !== 'string' || !/^\d{8,16}$/.test(v.customerPhone) ||
       typeof v.phoneNumberId !== 'string' || typeof v.expiresAt !== 'string' ||
       v.replacesOrderId !== null) return null;
-  const expiresAt = Date.parse(v.expiresAt);
-  if (!Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + 30 * 60_000) return null;
+  const expiration = Date.parse(v.expiresAt);
+  if (!Number.isFinite(expiration) || expiration <= now || expiration > now + 30 * 60_000) return null;
   return v as unknown as MenuSession;
 }
 export function secureEquals(a: string, b: string): boolean {
