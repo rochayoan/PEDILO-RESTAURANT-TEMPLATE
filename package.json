@@ -11,7 +11,9 @@
     "dev:menu": "npm run dev -w @pedilo/menu",
     "build": "npm run build -w @pedilo/agent && npm run build -w @pedilo/menu",
     "test": "tsx --test packages/config/src/*.test.ts apps/agent/src/*.test.ts",
-    "validate": "tsx scripts/validate-config.ts"
+    "validate": "tsx scripts/validate-config.ts",
+    "setup": "node scripts/setup-restaurant.mjs",
+    "typecheck": "npm run build --workspace=@pedilo/agent"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
